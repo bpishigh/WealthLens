@@ -5,11 +5,13 @@
 const Parsers = {
 
   // ============ SHARED FILE → ROWS HELPER ============
-  // Handles CSV, Excel (.xlsx/.xls) transparently.
-  // Returns: { rows: Array<Object>, fileHash: string, error?: string }
   async fileToRows(file) {
     const isExcel = /\.xlsx?$/i.test(file.name);
+
     if (isExcel) {
+      if (typeof XLSX === 'undefined') {
+        return { rows: [], fileHash: '', error: 'Excel library not loaded. Try refreshing the page.' };
+      }
       try {
         const arrayBuffer = await file.arrayBuffer();
         const workbook    = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
@@ -18,20 +20,25 @@ const Parsers = {
         const fileHash    = Data.hashFileContent(file.name + file.size + file.lastModified);
         return { rows, fileHash };
       } catch (e) {
-        return { rows: [], fileHash: '', error: `Excel parsing error: ${e.message}` };
+        return { rows: [], fileHash: '', error: 'Excel parsing error: ' + e.message };
       }
     }
+
     // CSV
-    const text = await file.text();
-    const fileHash = Data.hashFileContent(text);
-    return await new Promise((resolve) => {
-      Papa.parse(text, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (results) => resolve({ rows: results.data, fileHash }),
-        error:    (err)     => resolve({ rows: [], fileHash: '', error: err.message })
-      });
-    });
+    if (typeof Papa === 'undefined') {
+      return { rows: [], fileHash: '', error: 'CSV library not loaded. Try refreshing the page.' };
+    }
+    try {
+      const text     = await file.text();
+      const fileHash = Data.hashFileContent(text);
+      const result   = Papa.parse(text, { header: true, skipEmptyLines: true });
+      if (result.errors?.length && result.data?.length === 0) {
+        return { rows: [], fileHash, error: result.errors[0].message };
+      }
+      return { rows: result.data || [], fileHash };
+    } catch (e) {
+      return { rows: [], fileHash: '', error: 'CSV parsing error: ' + e.message };
+    }
   },
 
   // ============ ZERODHA EQUITY HOLDINGS ============
