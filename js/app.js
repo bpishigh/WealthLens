@@ -560,6 +560,8 @@ async function fetchLiveRates() {
   }
   // All APIs failed — silent, user sets manually
 }
+
+function exportData() {
   const json = Data.exportJSON();
   const blob = new Blob([json], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
@@ -648,4 +650,3 @@ function saveScriptUrl() {
     document.querySelector('.modal-overlay:last-child')?.remove();
   }
 }
-
