@@ -270,57 +270,73 @@ function checkDuplicate(fileHash, fileName) {
 async function parseZerodha(input) {
   if (!input.files[0]) return;
   showToast('Parsing Zerodha holdings...', '');
-  const result = await Parsers.parseZerodha(input.files[0]);
-  showImportPreview(result, 'Zerodha Holdings');
+  try {
+    const result = await Parsers.parseZerodha(input.files[0]);
+    showImportPreview(result, 'Zerodha Holdings');
+  } catch(e) { showToast('Parse error: ' + e.message, 'error'); console.error(e); }
 }
 
 async function parseZerodhaMF(input) {
   if (!input.files[0]) return;
   showToast('Parsing Zerodha MF...', '');
-  const result = await Parsers.parseZerodhaMF(input.files[0]);
-  showImportPreview(result, 'Zerodha Mutual Funds');
+  try {
+    const result = await Parsers.parseZerodhaMF(input.files[0]);
+    showImportPreview(result, 'Zerodha Mutual Funds');
+  } catch(e) { showToast('Parse error: ' + e.message, 'error'); console.error(e); }
 }
 
 async function parseGrowwEquity(input) {
   if (!input.files[0]) return;
   showToast('Parsing Groww holdings...', '');
-  const result = await Parsers.parseGrowwEquity(input.files[0]);
-  showImportPreview(result, 'Groww Holdings');
+  try {
+    const result = await Parsers.parseGrowwEquity(input.files[0]);
+    showImportPreview(result, 'Groww Holdings');
+  } catch(e) { showToast('Parse error: ' + e.message, 'error'); console.error(e); }
 }
 
 async function parseGrowwMF(input) {
   if (!input.files[0]) return;
   showToast('Parsing Groww MF...', '');
-  const result = await Parsers.parseGrowwMF(input.files[0]);
-  showImportPreview(result, 'Groww Mutual Funds');
+  try {
+    const result = await Parsers.parseGrowwMF(input.files[0]);
+    showImportPreview(result, 'Groww Mutual Funds');
+  } catch(e) { showToast('Parse error: ' + e.message, 'error'); console.error(e); }
 }
 
 async function parseGrowwPnL(input) {
   if (!input.files[0]) return;
   showToast('Parsing Groww P&L...', '');
-  const result = await Parsers.parseGrowwPnL(input.files[0]);
-  showImportPreview(result, 'Groww P&L');
+  try {
+    const result = await Parsers.parseGrowwPnL(input.files[0]);
+    showImportPreview(result, 'Groww P&L');
+  } catch(e) { showToast('Parse error: ' + e.message, 'error'); console.error(e); }
 }
 
 async function parseBank(input) {
   if (!input.files[0]) return;
   showToast('Parsing bank statement...', '');
-  const result = await Parsers.parseBank(input.files[0]);
-  showImportPreview(result, 'Bank Statement', result.message);
+  try {
+    const result = await Parsers.parseBank(input.files[0]);
+    showImportPreview(result, 'Bank Statement', result.message);
+  } catch(e) { showToast('Parse error: ' + e.message, 'error'); console.error(e); }
 }
 
 async function parseUSStocks(input) {
   if (!input.files[0]) return;
   showToast('Parsing US holdings...', '');
-  const result = await Parsers.parseUSStocks(input.files[0]);
-  showImportPreview(result, 'US Stocks');
+  try {
+    const result = await Parsers.parseUSStocks(input.files[0]);
+    showImportPreview(result, 'US Stocks');
+  } catch(e) { showToast('Parse error: ' + e.message, 'error'); console.error(e); }
 }
 
 async function parseEPF(input) {
   if (!input.files[0]) return;
   showToast('Parsing EPF passbook...', '');
-  const result = await Parsers.parseEPF(input.files[0]);
-  showImportPreview(result, 'EPF Passbook', result.message);
+  try {
+    const result = await Parsers.parseEPF(input.files[0]);
+    showImportPreview(result, 'EPF Passbook', result.message);
+  } catch(e) { showToast('Parse error: ' + e.message, 'error'); console.error(e); }
 }
 
 let currentImportResult = null;
