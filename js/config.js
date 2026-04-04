@@ -121,13 +121,43 @@ const CONFIG = {
   }
 };
 
+// Wealth milestones in INR
+const MILESTONES = [
+  { value: 100000,    label: '₹1L',   icon: '🌱' },
+  { value: 500000,    label: '₹5L',   icon: '🌿' },
+  { value: 1000000,   label: '₹10L',  icon: '⭐' },
+  { value: 2500000,   label: '₹25L',  icon: '🌟' },
+  { value: 5000000,   label: '₹50L',  icon: '💫' },
+  { value: 10000000,  label: '₹1Cr',  icon: '🏆' },
+  { value: 20000000,  label: '₹2Cr',  icon: '💎' },
+  { value: 50000000,  label: '₹5Cr',  icon: '👑' },
+  { value: 100000000, label: '₹10Cr', icon: '🚀' },
+];
+
+// Default allocation targets (% of net worth per category)
+// User can override these in Settings
+const DEFAULT_ALLOCATION_TARGETS = {
+  equity:     30,
+  mf:         20,
+  us:         10,
+  retirement: 15,
+  fd:         10,
+  gold:        5,
+  realestate:  5,
+  bank:        5,
+  other:       0,
+  liability:   0,
+};
+
 // App state — single source of truth
 const STATE = {
-  config: null,       // loaded from localStorage on init
-  assets: [],         // all asset records
-  snapshots: [],      // monthly snapshots [{month, categories, total}]
-  imports: [],        // import registry [{id, fileName, source, importedAt, assetCount}]
-  pnlRecords: [],     // realized P&L records (for tax; not counted in net worth)
+  config: null,
+  assets: [],
+  snapshots: [],
+  imports: [],
+  pnlRecords: [],
+  goals: [],
+  allocationTargets: { ...DEFAULT_ALLOCATION_TARGETS },
   currentMonth: null,
   pendingImport: null,
   charts: {},

@@ -83,6 +83,7 @@ function launchApp() {
     item.addEventListener('click', e => {
       e.preventDefault();
       UI.navigate(item.dataset.page);
+      closeSidebarOnMobile();
     });
   });
 
@@ -100,6 +101,26 @@ function launchApp() {
   UI.navigate('dashboard');
   updateCurrentFY();
   fetchLiveRates();
+}
+
+// ============ MOBILE SIDEBAR TOGGLE ============
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.querySelector('.sidebar-overlay');
+  const isOpen  = sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', !isOpen);
+  overlay.classList.toggle('active', !isOpen);
+  document.body.style.overflow = isOpen ? '' : 'hidden';
+}
+
+function closeSidebarOnMobile() {
+  if (window.innerWidth <= 768) {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.querySelector('.sidebar-overlay');
+    if (sidebar) sidebar.classList.remove('open');
+    if (overlay) overlay.classList.remove('active');
+    document.body.style.overflow = '';
+  }
 }
 
 // ============ MANUAL SNAPSHOT (dashboard button) ============
@@ -130,16 +151,70 @@ async function syncToSheets() {
 }
 
 // ============ AI INSIGHTS ============
+
+function switchInsightMode(mode, btn) {
+  document.querySelectorAll('.insights-mode-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('insights-preset-mode').classList.toggle('hidden', mode !== 'preset');
+  document.getElementById('insights-ask-mode').classList.toggle('hidden', mode !== 'ask');
+}
+
 async function generateInsights() {
   const activeBtn = document.querySelector('.insight-btn.active');
-  const type = activeBtn?.dataset?.type || 'monthly';
-  const outputEl = document.getElementById('insights-output');
-  outputEl.innerHTML = `<div class="ai-loading"><span class="loading-spinner"></span> Generating ${type} insights...</div>`;
+  const type      = activeBtn?.dataset?.type || 'monthly';
+  const outputEl  = document.getElementById('insights-output');
+
+  outputEl.innerHTML = `<div class="ai-loading">
+    <span class="loading-spinner"></span>
+    Generating ${type} insights with full portfolio context…
+  </div>`;
+
   if (document.getElementById('page-insights').classList.contains('hidden')) {
     UI.navigate('insights');
   }
+
   const result = await Insights.generate(type);
   outputEl.innerHTML = Insights.formatInsightHTML(result);
+}
+
+async function sendChatMessage() {
+  const input  = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send-btn');
+  const msg    = input.value.trim();
+  if (!msg) return;
+
+  const chatEl = document.getElementById('chat-output');
+
+  // Append user bubble
+  chatEl.innerHTML += Insights.formatChatHTML(msg, true);
+  input.value   = '';
+  input.disabled = true;
+  sendBtn.disabled = true;
+
+  // Typing indicator
+  const typingId = 'typing-' + Date.now();
+  chatEl.innerHTML += `<div id="${typingId}" class="chat-bubble chat-ai chat-typing">
+    <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+  </div>`;
+  chatEl.scrollTop = chatEl.scrollHeight;
+
+  const result = await Insights.chat(msg);
+
+  // Remove typing indicator, add reply
+  document.getElementById(typingId)?.remove();
+  chatEl.innerHTML += Insights.formatChatHTML(result);
+  chatEl.scrollTop = chatEl.scrollHeight;
+
+  input.disabled   = false;
+  sendBtn.disabled = false;
+  input.focus();
+}
+
+function clearChat() {
+  Insights.clearHistory();
+  const chatEl = document.getElementById('chat-output');
+  if (chatEl) chatEl.innerHTML = '';
+  showToast('Conversation cleared', '');
 }
 
 // ============ IMPORT HANDLERS ============
@@ -274,8 +349,24 @@ function showImportPreview(result, title, extraMessage = null) {
     return;
   }
 
-  html += `<p style="color:var(--text-secondary);margin-bottom:12px">Found <strong style="color:var(--text-primary)">${result.assets.length}</strong> ${title} entries:</p>
-    <table class="preview-table">
+  html += `<p style="color:var(--text-secondary);margin-bottom:12px">Found <strong style="color:var(--text-primary)">${result.assets.length}</strong> ${title} entries:</p>`;
+
+  // Bank rename field — always show for bank imports so user can name the account
+  const isBank = result.source === 'bank_csv' || result.source === 'bank_pdf';
+  if (isBank && result.assets.length > 0) {
+    const detectedBalance = result.assets[0].balance || 0;
+    html += `<div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px">
+      <div class="input-group" style="margin-bottom:0">
+        <label>Bank Name</label>
+        <input type="text" id="bank-import-name" placeholder="e.g. HDFC Savings, SBI Current"
+          value="${result.assets[0].name || 'Bank Account'}"
+          style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-size:0.9rem;width:100%">
+        <span class="input-hint">Detected balance: <strong style="color:var(--accent-gold)">${formatCurrencyFull(detectedBalance)}</strong> — rename this account before confirming</span>
+      </div>
+    </div>`;
+  }
+
+  html += `<table class="preview-table">
       <thead><tr><th>Name</th><th>Category</th><th>Value</th><th>Cost Basis</th></tr></thead>
       <tbody>
         ${result.assets.map(a => `
@@ -321,6 +412,13 @@ function confirmImport() {
 
   if (!result.assets?.length) return;
 
+  // Apply bank rename if user set a custom name
+  const bankNameEl = document.getElementById('bank-import-name');
+  if (bankNameEl && (result.source === 'bank_csv' || result.source === 'bank_pdf')) {
+    const customName = bankNameEl.value.trim();
+    if (customName) result.assets[0].name = customName;
+  }
+
   // Merge assets by source (replace source's existing data)
   Data.mergeAssets(result.assets, source);
   Data.takeSnapshot();
@@ -347,9 +445,11 @@ function showBulkEntry() { UI.showBulkEntry(); }
 function loadSettings() { UI.renderSettings(); }
 
 function saveSettings() {
-  localStorage.setItem('wl_gs_key',    document.getElementById('settings-api-key')?.value    || '');
-  localStorage.setItem('wl_gs_id',     document.getElementById('settings-sheet-id')?.value   || '');
-  localStorage.setItem('wl_claude_key',document.getElementById('settings-claude-key')?.value || '');
+  localStorage.setItem('wl_gs_key',     document.getElementById('settings-api-key')?.value    || '');
+  localStorage.setItem('wl_gs_id',      document.getElementById('settings-sheet-id')?.value   || '');
+  localStorage.setItem('wl_claude_key', document.getElementById('settings-claude-key')?.value || '');
+  const scriptUrl = document.getElementById('settings-script-url')?.value.trim();
+  if (scriptUrl) localStorage.setItem('wl_script_url', scriptUrl);
   STATE.usdInr   = parseFloat(document.getElementById('usd-inr-rate')?.value)  || 84;
   STATE.goldRate = parseFloat(document.getElementById('gold-rate')?.value)     || 7200;
   Data.saveLocal();

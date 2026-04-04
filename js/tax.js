@@ -1,30 +1,156 @@
-// js/tax.js — Tax calculations and planner
+// js/tax.js — Tax calculations, FY-aware, realized vs unrealized, regime comparison
 
 const Tax = {
 
+  // ============ FY HELPERS ============
+
+  getCurrentFYRange() {
+    const now   = new Date();
+    const year  = now.getFullYear();
+    const month = now.getMonth() + 1; // 1-based
+    const fyStart = month >= 4
+      ? new Date(year, 3, 1)        // Apr 1 this year
+      : new Date(year - 1, 3, 1);   // Apr 1 last year
+    const fyEnd = new Date(fyStart.getFullYear() + 1, 2, 31); // Mar 31 next year
+    return { fyStart, fyEnd };
+  },
+
+  isInCurrentFY(dateStr) {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    if (isNaN(d)) return false;
+    const { fyStart, fyEnd } = this.getCurrentFYRange();
+    return d >= fyStart && d <= fyEnd;
+  },
+
+  // ============ GAINS CALCULATION — FY-AWARE ============
+
+  // Realized gains: from PnL records, filtered to current FY
+  getRealizedGains() {
+    const pnl = Data.getPnlRecords();
+    let ltcg = 0, stcg = 0, unknown = 0;
+
+    pnl.forEach(r => {
+      if (!this.isInCurrentFY(r.sellDate)) return; // only current FY
+      const gain = parseFloat(r.gain) || 0;
+      if (gain <= 0) return; // only count profits (loss harvesting handled separately)
+      if (r.gainType === 'LTCG')       ltcg    += gain;
+      else if (r.gainType === 'STCG')  stcg    += gain;
+      else                             unknown += gain;
+    });
+
+    // Split unknown evenly as conservative estimate
+    ltcg += unknown * 0.5;
+    stcg += unknown * 0.5;
+
+    return { ltcg, stcg, hasData: pnl.length > 0 };
+  },
+
+  // Realized losses: for tax loss harvesting display
+  getRealizedLosses() {
+    const pnl = Data.getPnlRecords();
+    let ltcl = 0, stcl = 0;
+    pnl.forEach(r => {
+      if (!this.isInCurrentFY(r.sellDate)) return;
+      const gain = parseFloat(r.gain) || 0;
+      if (gain >= 0) return;
+      if (r.gainType === 'LTCG')      ltcl += Math.abs(gain);
+      else if (r.gainType === 'STCG') stcl += Math.abs(gain);
+    });
+    return { ltcl, stcl };
+  },
+
+  // Unrealized gains: from current holdings (not FY-aware — no purchase dates)
+  getUnrealizedGains() {
+    const equityAssets = [
+      ...Data.getAssets('equity'),
+      ...Data.getAssets('mf').filter(a => a.mfType === 'Equity')
+    ];
+    let ltcg = 0;
+    equityAssets.forEach(a => {
+      const gain = Data.getAssetValue(a) - Data.getAssetCost(a);
+      if (gain > 0) ltcg += gain;
+    });
+    return { ltcg, stcg: 0 };
+  },
+
+  // ============ TAX CALCULATIONS ============
+
+  // New regime FY 2025-26 slabs (updated — ₹12L rebate under 87A)
+  calculateNewRegimeTax(income) {
+    // Standard deduction: ₹75,000
+    const taxable = Math.max(0, income - 75000);
+    let tax = 0;
+    if (taxable <= 400000)       tax = 0;
+    else if (taxable <= 800000)  tax = (taxable - 400000) * 0.05;
+    else if (taxable <= 1200000) tax = 20000 + (taxable - 800000) * 0.10;
+    else if (taxable <= 1600000) tax = 60000 + (taxable - 1200000) * 0.15;
+    else if (taxable <= 2000000) tax = 120000 + (taxable - 1600000) * 0.20;
+    else if (taxable <= 2400000) tax = 200000 + (taxable - 2000000) * 0.25;
+    else                         tax = 300000 + (taxable - 2400000) * 0.30;
+    // 87A rebate: full tax rebate if income ≤ ₹12L (taxable ≤ ₹12L after std deduction)
+    if (taxable <= 1200000) tax = 0;
+    // 4% health & education cess
+    return Math.round(tax * 1.04);
+  },
+
+  calculateOldRegimeTax(income, deductions) {
+    const taxable = Math.max(0, income - deductions - 50000); // 50K standard deduction
+    let tax = 0;
+    if (taxable <= 250000)       tax = 0;
+    else if (taxable <= 500000)  tax = (taxable - 250000) * 0.05;
+    else if (taxable <= 1000000) tax = 12500 + (taxable - 500000) * 0.20;
+    else                         tax = 112500 + (taxable - 1000000) * 0.30;
+    // 87A rebate: if taxable ≤ ₹5L
+    if (taxable <= 500000) tax = 0;
+    return Math.round(tax * 1.04); // 4% cess
+  },
+
+  calculateLTCGTax(ltcg) {
+    // ₹1.25L exemption (updated Budget 2024), 12.5% above that
+    const taxable = Math.max(0, ltcg - 125000);
+    return Math.round(taxable * 0.125 * 1.04);
+  },
+
+  calculateSTCGTax(stcg) {
+    // 20% flat (updated Budget 2024)
+    return Math.round(stcg * 0.20 * 1.04);
+  },
+
+  // ============ MAIN UPDATE ============
+
   update() {
-    const config = STATE.config || {};
-    const income = config.annualIncome || 0;
-    const regime = config.taxRegime || 'new';
+    const config  = STATE.config || {};
+    const income  = config.annualIncome || 0;
+    const regime  = config.taxRegime    || 'new';
+    const { fyStart, fyEnd } = this.getCurrentFYRange();
+    const fyLabel = `${fyStart.getFullYear()}-${String(fyEnd.getFullYear()).slice(-2)}`;
 
-    // LTCG from equity
-    const gains = Data.getEquityGains();
-    const ltcgEquity = Math.max(0, gains.ltcg - 100000); // ₹1L exemption
-    const ltcgTax = ltcgEquity * 0.10;
+    // Update FY label
+    const fyEl = document.getElementById('current-fy');
+    if (fyEl) fyEl.textContent = fyLabel;
 
-    document.getElementById('ltcg-equity').textContent = formatCurrencyFull(gains.ltcg);
-    document.getElementById('ltcg-debt').textContent = '—';
-    document.getElementById('ltcg-tax').textContent = formatCurrencyFull(ltcgTax);
-    document.getElementById('stcg-equity').textContent = formatCurrencyFull(gains.stcg);
-    document.getElementById('stcg-other').textContent = '—';
+    // Gains
+    const realized   = this.getRealizedGains();
+    const unrealized = this.getUnrealizedGains();
+    const losses     = this.getRealizedLosses();
+
+    // Net gains after losses
+    const netLTCG = Math.max(0, realized.ltcg - losses.ltcl);
+    const netSTCG = Math.max(0, realized.stcg - losses.stcl);
+
+    // Deductions input
+    const d80d = parseFloat(document.getElementById('deduction-80d')?.value || 0);
+    const dNPS = parseFloat(document.getElementById('deduction-nps')?.value || 0);
+    const dHRA = parseFloat(document.getElementById('deduction-hra')?.value || 0);
 
     // 80C
-    const c80 = Data.get80CUsed();
+    const c80      = Data.get80CUsed();
     const c80Total = Math.min(c80.total, 150000);
-    const c80Pct = (c80Total / 150000) * 100;
+    const c80Pct   = (c80Total / 150000) * 100;
 
     document.getElementById('80c-fill').style.width = c80Pct + '%';
-    document.getElementById('80c-used').textContent = `${formatCurrencyFull(c80Total)} used`;
+    document.getElementById('80c-used').textContent  = `${formatCurrencyFull(c80Total)} used`;
 
     const breakdown80c = document.getElementById('80c-breakdown');
     if (breakdown80c) {
@@ -32,82 +158,217 @@ const Tax = {
         <div class="tax-item"><label>EPF (Employee)</label><span>${formatCurrencyFull(c80.epf)}</span></div>
         <div class="tax-item"><label>PPF</label><span>${formatCurrencyFull(c80.ppf)}</span></div>
         <div class="tax-item"><label>ELSS</label><span>${formatCurrencyFull(c80.elss)}</span></div>
-        <div class="tax-item"><label>Remaining 80C Room</label><span class="tag-positive">${formatCurrencyFull(150000 - c80Total)}</span></div>
-      `;
+        <div class="tax-item"><label>Remaining Room</label><span class="tag-positive">${formatCurrencyFull(Math.max(0, 150000 - c80Total))}</span></div>`;
     }
 
-    // Tax summary
-    this.renderSummary(income, regime, c80Total, ltcgTax, gains);
+    // Capital gains section
+    this.renderCapitalGains(realized, unrealized, losses, netLTCG, netSTCG);
+
+    // Regime comparison
+    const ltcgTax = this.calculateLTCGTax(netLTCG);
+    const stcgTax = this.calculateSTCGTax(netSTCG);
+    const capitalGainsTax = ltcgTax + stcgTax;
+    this.renderRegimeComparison(income, d80d, dNPS, dHRA, c80Total, capitalGainsTax, regime);
+
+    // Recommendations
+    this.renderRecommendations(income, regime, c80Total, d80d, dNPS, realized, unrealized, losses);
   },
 
-  renderSummary(income, regime, c80, ltcgTax, gains) {
-    const el = document.getElementById('tax-summary');
+  // ============ CAPITAL GAINS SECTION ============
+
+  renderCapitalGains(realized, unrealized, losses, netLTCG, netSTCG) {
+    const el = document.getElementById('capital-gains-section');
     if (!el) return;
 
-    const d80d = parseFloat(document.getElementById('deduction-80d')?.value || 0);
-    const dNPS = parseFloat(document.getElementById('deduction-nps')?.value || 0);
-    const dHRA = parseFloat(document.getElementById('deduction-hra')?.value || 0);
-
-    let taxableIncome = income;
-    let deductions = 0;
-    let recommendations = [];
-
-    if (regime === 'old') {
-      deductions = c80 + d80d + dNPS + dHRA + 50000; // standard deduction
-      taxableIncome = Math.max(0, income - deductions);
-    } else {
-      taxableIncome = Math.max(0, income - 75000); // standard deduction new regime
-    }
-
-    const incomeTax = this.calculateIncomeTax(taxableIncome, regime);
-    const totalTax = incomeTax + ltcgTax;
-
-    // Generate recommendations
-    if (c80 < 150000 && regime === 'old') {
-      recommendations.push(`💡 Invest ₹${formatCurrency(150000 - c80)} more in 80C instruments (ELSS, PPF) before March`);
-    }
-    if (gains.ltcg > 100000) {
-      recommendations.push(`⚠️ LTCG of ₹${formatCurrency(gains.ltcg)} — consider tax loss harvesting to offset`);
-    }
-    if (dNPS < 50000 && income > 500000) {
-      recommendations.push(`💡 NPS 80CCD(1B) — extra ₹50K deduction available, currently using ₹${formatCurrency(dNPS)}`);
-    }
-    if (regime === 'new' && (c80 + d80d + dNPS + dHRA) > 200000) {
-      recommendations.push(`💡 Your deductions (₹${formatCurrency(c80 + d80d + dNPS + dHRA)}) suggest Old Regime may save more tax`);
-    }
+    const ltcgTax = this.calculateLTCGTax(netLTCG);
+    const stcgTax = this.calculateSTCGTax(netSTCG);
+    const hasPnL  = realized.hasData;
 
     el.innerHTML = `
-      <div class="tax-item"><label>Gross Income</label><span>${formatCurrencyFull(income)}</span></div>
-      ${regime === 'old' ? `<div class="tax-item"><label>Total Deductions</label><span class="tag-positive">-${formatCurrencyFull(deductions)}</span></div>` : ''}
-      <div class="tax-item"><label>Taxable Income</label><span>${formatCurrencyFull(taxableIncome)}</span></div>
-      <div class="tax-item"><label>Income Tax (${regime === 'new' ? 'New' : 'Old'} Regime)</label><span>${formatCurrencyFull(incomeTax)}</span></div>
-      <div class="tax-item"><label>LTCG Tax</label><span>${formatCurrencyFull(ltcgTax)}</span></div>
-      <div class="tax-item highlight"><label>Estimated Total Tax</label><span>${formatCurrencyFull(totalTax)}</span></div>
-      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
-        <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:10px">Recommendations</div>
-        ${recommendations.length > 0
-          ? recommendations.map(r => `<div style="padding:8px 0;font-size:0.86rem;color:var(--text-secondary);border-bottom:1px solid var(--border)">${r}</div>`).join('')
-          : '<div style="color:var(--text-muted);font-size:0.86rem">Tax position looks optimal!</div>'
+      <!-- Realized gains (from PnL) -->
+      <div class="tax-card">
+        <h3>Realized Gains ${hasPnL ? '<span class="fy-badge">FY filtered</span>' : ''}</h3>
+        ${!hasPnL ? `<p style="color:var(--text-muted);font-size:0.83rem;margin-bottom:12px">Import Groww P&L to see realized gains</p>` : ''}
+        <div class="tax-item">
+          <label>LTCG (realized)</label>
+          <span class="${realized.ltcg > 0 ? 'tag-positive' : ''}">${formatCurrencyFull(realized.ltcg)}</span>
+        </div>
+        <div class="tax-item">
+          <label>STCG (realized)</label>
+          <span class="${realized.stcg > 0 ? 'tag-positive' : ''}">${formatCurrencyFull(realized.stcg)}</span>
+        </div>
+        <div class="tax-item">
+          <label>Losses (harvested)</label>
+          <span class="${(losses.ltcl + losses.stcl) > 0 ? 'tag-negative' : ''}">
+            -${formatCurrencyFull(losses.ltcl + losses.stcl)}
+          </span>
+        </div>
+        <div class="tax-item highlight">
+          <label>Net Taxable Gains</label>
+          <span>${formatCurrencyFull(netLTCG + netSTCG)}</span>
+        </div>
+      </div>
+
+      <!-- Unrealized gains -->
+      <div class="tax-card">
+        <h3>Unrealized Gains <span class="fy-badge">current holdings</span></h3>
+        <p style="color:var(--text-muted);font-size:0.78rem;margin-bottom:12px">
+          Estimated — assumed LTCG (no purchase dates). Sell before Mar 31 to realize this FY.
+        </p>
+        <div class="tax-item">
+          <label>Equity + Equity MF</label>
+          <span class="${unrealized.ltcg > 0 ? 'tag-positive' : ''}">${formatCurrencyFull(unrealized.ltcg)}</span>
+        </div>
+        <div class="tax-item">
+          <label>Tax if sold now (LTCG)</label>
+          <span>${formatCurrencyFull(this.calculateLTCGTax(unrealized.ltcg))}</span>
+        </div>
+        <div class="tax-item highlight">
+          <label>₹1.25L exemption remaining</label>
+          <span class="tag-positive">${formatCurrencyFull(Math.max(0, 125000 - netLTCG))}</span>
+        </div>
+      </div>
+
+      <!-- Capital gains tax -->
+      <div class="tax-card">
+        <h3>Capital Gains Tax (FY ${document.getElementById('current-fy')?.textContent || ''})</h3>
+        <div class="tax-item">
+          <label>LTCG tax (12.5% above ₹1.25L)</label>
+          <span>${formatCurrencyFull(ltcgTax)}</span>
+        </div>
+        <div class="tax-item">
+          <label>STCG tax (20% flat)</label>
+          <span>${formatCurrencyFull(stcgTax)}</span>
+        </div>
+        <div class="tax-item highlight">
+          <label>Total Capital Gains Tax</label>
+          <span style="color:var(--accent-red)">${formatCurrencyFull(ltcgTax + stcgTax)}</span>
+        </div>
+      </div>`;
+  },
+
+  // ============ REGIME COMPARISON ============
+
+  renderRegimeComparison(income, d80d, dNPS, dHRA, c80, capitalGainsTax, currentRegime) {
+    const el = document.getElementById('regime-comparison');
+    if (!el) return;
+
+    const oldDeductions = c80 + d80d + dNPS + dHRA;
+    const newTax = this.calculateNewRegimeTax(income) + capitalGainsTax;
+    const oldTax = this.calculateOldRegimeTax(income, oldDeductions) + capitalGainsTax;
+    const saving  = oldTax - newTax;
+    const betterRegime = saving > 0 ? 'new' : 'old';
+    const savingAbs = Math.abs(saving);
+
+    el.innerHTML = `
+      <div class="regime-compare-grid">
+        <div class="regime-card ${currentRegime === 'new' ? 'regime-active' : ''}">
+          <div class="regime-label">New Regime ${currentRegime === 'new' ? '<span class="regime-current-tag">Current</span>' : ''}</div>
+          <div class="regime-tax">${formatCurrencyFull(newTax)}</div>
+          <div class="regime-detail">
+            <div class="tax-item"><label>Std deduction</label><span>₹75,000</span></div>
+            <div class="tax-item"><label>Income tax</label><span>${formatCurrencyFull(this.calculateNewRegimeTax(income))}</span></div>
+            <div class="tax-item"><label>Capital gains tax</label><span>${formatCurrencyFull(capitalGainsTax)}</span></div>
+            <div class="tax-item"><label>87A rebate</label><span>${income - 75000 <= 1200000 ? 'Applied ✓' : 'Not applicable'}</span></div>
+          </div>
+        </div>
+        <div class="regime-vs">VS</div>
+        <div class="regime-card ${currentRegime === 'old' ? 'regime-active' : ''}">
+          <div class="regime-label">Old Regime ${currentRegime === 'old' ? '<span class="regime-current-tag">Current</span>' : ''}</div>
+          <div class="regime-tax">${formatCurrencyFull(oldTax)}</div>
+          <div class="regime-detail">
+            <div class="tax-item"><label>80C + deductions</label><span>-${formatCurrencyFull(oldDeductions)}</span></div>
+            <div class="tax-item"><label>Income tax</label><span>${formatCurrencyFull(this.calculateOldRegimeTax(income, oldDeductions))}</span></div>
+            <div class="tax-item"><label>Capital gains tax</label><span>${formatCurrencyFull(capitalGainsTax)}</span></div>
+            <div class="tax-item"><label>87A rebate</label><span>${income - oldDeductions - 50000 <= 500000 ? 'Applied ✓' : 'Not applicable'}</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="regime-verdict ${betterRegime === currentRegime ? 'verdict-good' : 'verdict-switch'}">
+        ${betterRegime === currentRegime
+          ? `✓ You're on the right regime — saving ${formatCurrencyFull(savingAbs)} vs the alternative`
+          : `⚡ Switch to <strong>${betterRegime === 'new' ? 'New' : 'Old'} Regime</strong> to save ${formatCurrencyFull(savingAbs)} this FY`
         }
       </div>`;
   },
 
-  calculateIncomeTax(income, regime) {
-    if (regime === 'new') {
-      // New regime FY 2024-25 slabs
-      if (income <= 300000) return 0;
-      if (income <= 600000) return (income - 300000) * 0.05;
-      if (income <= 900000) return 15000 + (income - 600000) * 0.10;
-      if (income <= 1200000) return 45000 + (income - 900000) * 0.15;
-      if (income <= 1500000) return 90000 + (income - 1200000) * 0.20;
-      return 150000 + (income - 1500000) * 0.30;
-    } else {
-      // Old regime
-      if (income <= 250000) return 0;
-      if (income <= 500000) return (income - 250000) * 0.05;
-      if (income <= 1000000) return 12500 + (income - 500000) * 0.20;
-      return 112500 + (income - 1000000) * 0.30;
+  // ============ RECOMMENDATIONS ============
+
+  renderRecommendations(income, regime, c80, d80d, dNPS, realized, unrealized, losses) {
+    const el = document.getElementById('tax-recommendations');
+    if (!el) return;
+
+    const recs = [];
+    const { fyEnd } = this.getCurrentFYRange();
+    const daysLeft = Math.ceil((fyEnd - new Date()) / (1000 * 60 * 60 * 24));
+    const monthsLeft = Math.ceil(daysLeft / 30);
+
+    // 80C room
+    if (c80 < 150000 && regime === 'old') {
+      recs.push({
+        icon: '💡', type: 'opportunity',
+        text: `₹${formatCurrency(150000 - c80)} of 80C room remaining — invest in ELSS or PPF before Mar 31`
+      });
     }
+
+    // NPS top-up
+    if (dNPS < 50000 && income > 500000) {
+      recs.push({
+        icon: '💡', type: 'opportunity',
+        text: `NPS 80CCD(1B): extra ₹50K deduction available (currently using ${formatCurrency(dNPS)})`
+      });
+    }
+
+    // LTCG harvesting — exemption headroom
+    const netLTCG = Math.max(0, realized.ltcg - losses.ltcl);
+    const exemptionLeft = Math.max(0, 125000 - netLTCG);
+    if (exemptionLeft > 0 && unrealized.ltcg > 0 && daysLeft > 0) {
+      recs.push({
+        icon: '📊', type: 'opportunity',
+        text: `Tax-free LTCG harvest: sell up to ${formatCurrency(exemptionLeft)} of gains before Mar 31 — no tax due`
+      });
+    }
+
+    // Loss harvesting
+    if (losses.ltcl + losses.stcl === 0 && unrealized.ltcg > 125000) {
+      recs.push({
+        icon: '⚖️', type: 'neutral',
+        text: `Consider tax-loss harvesting — sell loss-making positions to offset your LTCG`
+      });
+    }
+
+    // LTCG warning
+    if (netLTCG > 125000) {
+      recs.push({
+        icon: '⚠️', type: 'warning',
+        text: `LTCG of ${formatCurrency(netLTCG)} exceeds ₹1.25L exemption — tax of ${formatCurrency(this.calculateLTCGTax(netLTCG))} applies`
+      });
+    }
+
+    // Time pressure
+    if (daysLeft <= 60 && daysLeft > 0) {
+      recs.push({
+        icon: '⏰', type: 'warning',
+        text: `${daysLeft} days left in FY ${document.getElementById('current-fy')?.textContent || ''} — act on any tax-saving moves soon`
+      });
+    }
+
+    // No recommendations
+    if (recs.length === 0) {
+      recs.push({ icon: '✓', type: 'good', text: 'Tax position looks well-optimized for this FY' });
+    }
+
+    el.innerHTML = recs.map(r => `
+      <div class="rec-item rec-${r.type}">
+        <span class="rec-icon">${r.icon}</span>
+        <span>${r.text}</span>
+      </div>`).join('');
+  },
+
+  // ============ INCOME TAX (kept for compatibility) ============
+  calculateIncomeTax(income, regime) {
+    if (regime === 'new') return this.calculateNewRegimeTax(income);
+    return this.calculateOldRegimeTax(income, 0);
   }
 };
 

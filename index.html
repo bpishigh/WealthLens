@@ -83,11 +83,26 @@
 
   <!-- Main App -->
   <div id="app" class="app hidden">
+    <!-- Mobile top bar -->
+    <div class="mobile-topbar">
+      <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <div class="mobile-logo">
+        <span style="color:var(--accent-gold)">⬡</span>
+        <span style="font-family:var(--font-display)">WealthLens</span>
+      </div>
+      <div style="width:40px"></div>
+    </div>
+    <!-- Sidebar overlay (mobile) -->
+    <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
     <!-- Sidebar -->
     <nav class="sidebar">
       <div class="sidebar-logo">
         <span class="logo-mark">⬡</span>
         <span class="logo-text">WealthLens</span>
+        <button class="sidebar-close" onclick="toggleSidebar()" aria-label="Close menu">✕</button>
       </div>
       <div class="sidebar-menu">
         <a href="#" class="nav-item active" data-page="dashboard">
@@ -95,6 +110,12 @@
         </a>
         <a href="#" class="nav-item" data-page="assets">
           <span class="nav-icon">◎</span> Assets
+        </a>
+        <a href="#" class="nav-item" data-page="returns">
+          <span class="nav-icon">◑</span> Returns
+        </a>
+        <a href="#" class="nav-item" data-page="goals">
+          <span class="nav-icon">◆</span> Goals
         </a>
         <a href="#" class="nav-item" data-page="import">
           <span class="nav-icon">⊕</span> Import Data
@@ -133,6 +154,9 @@
           </div>
         </div>
 
+        <!-- Historical view banner -->
+        <div id="historical-banner" class="historical-banner hidden"></div>
+
         <!-- Net Worth Hero -->
         <div class="networth-hero">
           <div class="hero-left">
@@ -150,6 +174,12 @@
           </div>
         </div>
 
+        <!-- Milestones -->
+        <div class="milestone-section">
+          <div class="section-label">Wealth Milestones</div>
+          <div id="milestone-strip" class="milestone-strip"></div>
+        </div>
+
         <!-- Category Cards -->
         <div class="category-grid" id="category-grid">
           <!-- Dynamically populated -->
@@ -164,6 +194,21 @@
           <div class="chart-container">
             <canvas id="trend-chart"></canvas>
           </div>
+        </div>
+
+        <!-- Allocation Targets -->
+        <div class="chart-section" style="margin-bottom:20px">
+          <div class="chart-header">
+            <h2>Allocation vs Targets</h2>
+            <a href="#" onclick="UI.navigate('settings');return false" style="font-size:0.8rem;color:var(--text-muted)">Edit targets →</a>
+          </div>
+          <div id="allocation-section"></div>
+        </div>
+
+        <!-- Savings Rate -->
+        <div class="chart-section" style="margin-bottom:20px">
+          <div class="chart-header"><h2>Monthly Growth & Savings Rate</h2></div>
+          <div id="savings-rate-section"></div>
         </div>
 
         <!-- Quick Snapshot Table -->
@@ -183,6 +228,74 @@
             <tbody id="snapshot-body"></tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Returns Page -->
+      <div id="page-returns" class="page hidden">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Returns & Performance</h1>
+            <p class="page-subtitle">Absolute returns and portfolio CAGR</p>
+          </div>
+        </div>
+
+        <!-- Summary stats row -->
+        <div class="returns-stats-row">
+          <div class="returns-stat-card">
+            <div class="returns-stat-label">Portfolio XIRR</div>
+            <div id="returns-xirr" class="returns-stat-value">—</div>
+          </div>
+          <div class="returns-stat-card">
+            <div class="returns-stat-label">Total Gain / Loss</div>
+            <div id="returns-total-gain" class="returns-stat-value">—</div>
+          </div>
+          <div class="returns-stat-card">
+            <div class="returns-stat-label">Overall Return</div>
+            <div id="returns-total-pct" class="returns-stat-value">—</div>
+          </div>
+          <div class="returns-stat-card">
+            <div class="returns-stat-label">Tracking Period</div>
+            <div id="returns-snap-count" class="returns-stat-value">—</div>
+          </div>
+        </div>
+
+        <!-- Returns bar chart -->
+        <div class="chart-section">
+          <div class="chart-header"><h2>Return % by Category</h2></div>
+          <div class="chart-container" style="height:260px">
+            <canvas id="returns-bar-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Category returns table -->
+        <div class="snapshot-section">
+          <h2>Category Breakdown</h2>
+          <table class="snapshot-table">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Current Value</th>
+                <th>Cost Basis</th>
+                <th>Gain / Loss</th>
+                <th>Return %</th>
+                <th>CAGR</th>
+              </tr>
+            </thead>
+            <tbody id="returns-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Goals Page -->
+      <div id="page-goals" class="page hidden">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Wealth Goals</h1>
+            <p class="page-subtitle">Track progress toward your financial targets</p>
+          </div>
+          <button class="btn-primary" onclick="showGoalModal()">+ Add Goal</button>
+        </div>
+        <div id="goals-list" class="goals-list"></div>
       </div>
 
       <!-- Assets Page -->
@@ -414,10 +527,24 @@
       <!-- AI Insights Page -->
       <div id="page-insights" class="page hidden">
         <div class="page-header">
-          <h1 class="page-title">AI Insights</h1>
-          <p class="page-subtitle">Powered by Claude — your financial intelligence layer</p>
+          <div>
+            <h1 class="page-title">AI Insights</h1>
+            <p class="page-subtitle">Powered by Claude Haiku · Full portfolio context</p>
+          </div>
         </div>
-        <div class="insights-container">
+
+        <!-- Mode tabs -->
+        <div class="insights-mode-tabs">
+          <button class="insights-mode-tab active" data-mode="preset" onclick="switchInsightMode('preset', this)">
+            ◈ Preset Analysis
+          </button>
+          <button class="insights-mode-tab" data-mode="ask" onclick="switchInsightMode('ask', this)">
+            ◐ Ask Anything
+          </button>
+        </div>
+
+        <!-- Preset mode -->
+        <div id="insights-preset-mode" class="insights-container">
           <div class="insight-controls">
             <div class="insight-type-grid">
               <button class="insight-btn active" data-type="monthly">Monthly Review</button>
@@ -428,15 +555,30 @@
               <button class="insight-btn" data-type="rebalance">Rebalancing</button>
             </div>
             <button class="btn-primary generate-btn" onclick="generateInsights()">
-              <span class="btn-icon">✦</span> Generate Insights
+              <span class="btn-icon">✦</span> Generate
             </button>
           </div>
           <div id="insights-output" class="insights-output">
             <div class="insights-placeholder">
               <div class="placeholder-icon">◐</div>
-              <p>Select an insight type and click Generate to get AI-powered analysis of your portfolio.</p>
-              <p class="placeholder-note">Token-efficient: each analysis uses ~500-800 tokens</p>
+              <p>Select an analysis type and click Generate.</p>
+              <p class="placeholder-note">Context includes: XIRR, goals, realized P&amp;L, allocation deltas · ~600-900 tokens per call</p>
             </div>
+          </div>
+        </div>
+
+        <!-- Ask anything mode -->
+        <div id="insights-ask-mode" class="insights-container hidden">
+          <div class="chat-context-badge">
+            Portfolio context auto-included: NW · XIRR · Goals · P&amp;L · Allocation · Tax regime
+          </div>
+          <div id="chat-output" class="chat-output"></div>
+          <div class="chat-input-row">
+            <input type="text" id="chat-input" class="chat-input"
+              placeholder="e.g. Should I increase my equity allocation? When will I reach ₹1Cr?"
+              onkeydown="if(event.key==='Enter')sendChatMessage()">
+            <button class="btn-primary" onclick="sendChatMessage()" id="chat-send-btn">Send</button>
+            <button class="btn-secondary" onclick="clearChat()" title="Clear conversation">↺</button>
           </div>
         </div>
       </div>
@@ -444,10 +586,14 @@
       <!-- Tax Planner Page -->
       <div id="page-tax" class="page hidden">
         <div class="page-header">
-          <h1 class="page-title">Tax Planner</h1>
-          <p class="page-subtitle">FY <span id="current-fy">2024-25</span> Planning</p>
+          <div>
+            <h1 class="page-title">Tax Planner</h1>
+            <p class="page-subtitle">FY <span id="current-fy">2025-26</span> · Budget 2024 slabs</p>
+          </div>
         </div>
-        <div class="tax-grid">
+
+        <!-- Row 1: 80C + Deductions -->
+        <div class="tax-grid" style="margin-bottom:20px">
           <div class="tax-card">
             <h3>80C Utilization</h3>
             <div class="tax-gauge">
@@ -462,50 +608,36 @@
             <div class="tax-breakdown" id="80c-breakdown"></div>
           </div>
           <div class="tax-card">
-            <h3>LTCG Position</h3>
-            <div class="tax-item">
-              <label>Equity LTCG (10% above ₹1L)</label>
-              <span id="ltcg-equity">₹0</span>
-            </div>
-            <div class="tax-item">
-              <label>Debt LTCG (Indexed)</label>
-              <span id="ltcg-debt">₹0</span>
-            </div>
-            <div class="tax-item highlight">
-              <label>Estimated Tax Liability</label>
-              <span id="ltcg-tax">₹0</span>
-            </div>
-          </div>
-          <div class="tax-card">
-            <h3>STCG Tracking</h3>
-            <div class="tax-item">
-              <label>Equity STCG (15%)</label>
-              <span id="stcg-equity">₹0</span>
-            </div>
-            <div class="tax-item">
-              <label>F&O/Other</label>
-              <span id="stcg-other">₹0</span>
-            </div>
-          </div>
-          <div class="tax-card">
-            <h3>80D / Other Deductions</h3>
+            <h3>Other Deductions (Old Regime)</h3>
             <div class="tax-item">
               <label>Health Insurance (80D)</label>
               <input type="number" id="deduction-80d" placeholder="0" onchange="updateTax()" />
             </div>
             <div class="tax-item">
-              <label>NPS (80CCD 1B)</label>
+              <label>NPS 80CCD(1B)</label>
               <input type="number" id="deduction-nps" placeholder="0" onchange="updateTax()" />
             </div>
             <div class="tax-item">
-              <label>HRA / Home Loan</label>
+              <label>HRA / Home Loan Interest</label>
               <input type="number" id="deduction-hra" placeholder="0" onchange="updateTax()" />
             </div>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-top:8px">These deductions only apply under Old Regime</p>
           </div>
-          <div class="tax-card wide-card">
-            <h3>Tax Summary & Recommendations</h3>
-            <div id="tax-summary"></div>
-          </div>
+        </div>
+
+        <!-- Row 2: Capital gains — dynamic section -->
+        <div id="capital-gains-section" class="tax-grid" style="margin-bottom:20px"></div>
+
+        <!-- Row 3: Regime comparison — full width -->
+        <div class="tax-card wide-card" style="margin-bottom:20px">
+          <h3>Regime Comparison</h3>
+          <div id="regime-comparison"></div>
+        </div>
+
+        <!-- Row 4: Recommendations -->
+        <div class="tax-card wide-card">
+          <h3>Recommendations</h3>
+          <div id="tax-recommendations"></div>
         </div>
       </div>
 
@@ -524,6 +656,11 @@
             <div class="input-group">
               <label>Sheet ID</label>
               <input type="text" id="settings-sheet-id" />
+            </div>
+            <div class="input-group">
+              <label>Web App URL (for write access)</label>
+              <input type="text" id="settings-script-url" placeholder="https://script.google.com/macros/s/.../exec" />
+              <span class="input-hint">Deploy an Apps Script to enable syncing. <a href="#" onclick="showAppsScriptGuide();return false">Setup guide →</a></span>
             </div>
             <button class="btn-secondary" onclick="saveSettings()">Save</button>
           </div>
@@ -562,6 +699,11 @@
             <button class="btn-secondary" onclick="importData()">↑ Import Backup</button>
             <button class="btn-danger" onclick="clearData()">✕ Clear All Data</button>
           </div>
+          <div class="settings-card" style="grid-column: 1 / -1">
+            <h3>Allocation Targets</h3>
+            <p style="color:var(--text-muted);font-size:0.83rem;margin-bottom:16px">Set your ideal portfolio allocation. The dashboard will show over/under vs these targets.</p>
+            <div id="allocation-targets-form"></div>
+          </div>
         </div>
       </div>
     </main>
@@ -591,6 +733,17 @@
         <button class="btn-secondary" onclick="closeModal('bulk-modal')">Cancel</button>
         <button class="btn-primary" onclick="saveBulkEntry()">Save Snapshot →</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Goal Modal -->
+  <div id="goal-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="goal-modal-title">New Goal</h2>
+        <button class="modal-close" onclick="closeModal('goal-modal')">✕</button>
+      </div>
+      <div id="goal-form-container"></div>
     </div>
   </div>
 
