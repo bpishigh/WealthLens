@@ -112,7 +112,7 @@ function launchApp() {
 
   UI.navigate('dashboard');
   updateCurrentFY();
-  fetchLiveRates();
+  fetchLiveRates().catch(() => {}); // fire-and-forget, never affects init
 }
 
 // ============ MOBILE SIDEBAR TOGGLE ============
@@ -529,19 +529,29 @@ function updateSalary() {
 }
 
 async function fetchLiveRates() {
-  try {
-    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=INR');
-    if (res.ok) {
+  // frankfurter.app blocks GitHub Pages via CORS — use exchangerate-api instead
+  // Both fail gracefully; user can always set rate manually in Settings
+  const APIs = [
+    'https://open.er-api.com/v6/latest/USD',
+    'https://api.exchangerate-api.com/v4/latest/USD'
+  ];
+  for (const url of APIs) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
       const data = await res.json();
-      STATE.usdInr = data.rates?.INR || STATE.usdInr;
-      Data.saveLocal();
-      const el = document.getElementById('usd-inr-rate');
-      if (el) el.value = STATE.usdInr.toFixed(2);
-    }
-  } catch (e) {
-    console.error('fetchLiveRates error:', e);
-    // Silent fail — user can set rates manually
+      const rate = data.rates?.INR;
+      if (rate) {
+        STATE.usdInr = rate;
+        Data.saveLocal();
+        const el = document.getElementById('usd-inr-rate');
+        if (el) el.value = rate.toFixed(2);
+        return; // success
+      }
+    } catch { /* try next */ }
   }
+  // All APIs failed — silent, user sets manually
+}
   const json = Data.exportJSON();
   const blob = new Blob([json], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
