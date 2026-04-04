@@ -25,10 +25,11 @@ document.addEventListener('DOMContentLoaded', () => {
       <p style="color:#8b93a8;margin:12px 0">Error: <code style="color:#c8a96e">${e.message}</code></p>
       <p style="color:#8b93a8">Try clearing site data: Settings → Privacy → Clear browsing data → Cached/Storage for this site.</p>
       <button onclick="localStorage.clear();location.reload()" style="margin-top:16px;padding:10px 20px;background:#e05c5c;color:white;border:none;border-radius:6px;cursor:pointer">
-        Clear Data & Reload
+        Clear Data &amp; Reload
       </button>
     </div>`;
-  };
+  }
+});
 
 // ============ SETUP FLOW ============
 async function setupStep1() {
@@ -50,19 +51,26 @@ async function setupStep1() {
   if (apiKey && sheetId) {
     statusEl.innerHTML = '<span class="loading-spinner"></span> Verifying connection...';
     statusEl.style.color = 'var(--text-secondary)';
-    const result = await Sheets.verifyConnection(apiKey, sheetId);
-    if (!result.ok) {
-      statusEl.textContent = '✗ ' + result.error + '. You can still use local storage.';
-      statusEl.style.color = 'var(--accent-red)';
-    } else {
-      statusEl.textContent = '✓ Connected! Sheets: ' + (result.sheets.join(', ') || 'empty');
-      statusEl.style.color = 'var(--accent-green)';
+    try {
+      const result = await Sheets.verifyConnection(apiKey, sheetId);
+      if (!result.ok) {
+        statusEl.textContent = '⚠ ' + result.error + ' — continuing with local storage only';
+        statusEl.style.color = 'var(--accent-gold)';
+      } else {
+        statusEl.textContent = '✓ Connected! Sheets: ' + (result.sheets.join(', ') || 'empty');
+        statusEl.style.color = 'var(--accent-green)';
+      }
+    } catch (e) {
+      // Network error (CORS etc.) — don't block setup
+      statusEl.textContent = '⚠ Could not verify Sheets — continuing with local storage only';
+      statusEl.style.color = 'var(--accent-gold)';
     }
   } else {
     statusEl.textContent = '→ No Sheets API key — data will save locally only';
     statusEl.style.color = 'var(--text-secondary)';
   }
 
+  // Always move to step 2 after showing status
   setTimeout(() => {
     document.getElementById('step-1').classList.remove('active');
     document.getElementById('step-2').classList.add('active');
@@ -640,3 +648,4 @@ function saveScriptUrl() {
     document.querySelector('.modal-overlay:last-child')?.remove();
   }
 }
+
