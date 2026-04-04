@@ -18,10 +18,17 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('app').classList.add('hidden');
     }
   } catch (e) {
-    console.error('Critical failure:', e);
-    alert('Something broke. Check console.');
-  }
-});
+    console.error('WealthLens init error:', e);
+    // Show error in page instead of blocking alert
+    document.body.innerHTML = `<div style="padding:40px;font-family:sans-serif;color:#e8eaf0;background:#0a0c0f;min-height:100vh">
+      <h2 style="color:#e05c5c">WealthLens failed to load</h2>
+      <p style="color:#8b93a8;margin:12px 0">Error: <code style="color:#c8a96e">${e.message}</code></p>
+      <p style="color:#8b93a8">Try clearing site data: Settings → Privacy → Clear browsing data → Cached/Storage for this site.</p>
+      <button onclick="localStorage.clear();location.reload()" style="margin-top:16px;padding:10px 20px;background:#e05c5c;color:white;border:none;border-radius:6px;cursor:pointer">
+        Clear Data & Reload
+      </button>
+    </div>`;
+  };
 
 // ============ SETUP FLOW ============
 async function setupStep1() {
@@ -412,18 +419,18 @@ function closeImportPreview() {
 }
 
 function confirmImport() {
-  try {
   if (!currentImportResult) return;
 
   const result = currentImportResult;
   const source = result.source;
+
   if (!result || !Array.isArray(result.assets)) {
-    console.error('Invalid import result', result);
+    showToast('Import failed: invalid data format', 'error');
     return;
   }
 
-  // PnL records
-  if (result.pnlRecords?.length > 0) {
+  // PnL records path
+  if (result.pnlRecords?.length > 0 && result.assets.length === 0) {
     Data.addPnlRecords(result.pnlRecords, source);
     Data.registerImport({
       fileHash:   result.fileHash || ('manual_' + Date.now()),
@@ -436,29 +443,27 @@ function confirmImport() {
     showToast(`Saved ${result.pnlRecords.length} P&L records ✓`, 'success');
     closeImportPreview();
     UI.renderImportHistory();
-    if (!document.getElementById('page-tax')?.classList.contains('hidden')) Tax.update();
+    UI.renderDashboard();
     return;
   }
 
-  if (!result.assets?.length) return;
+  if (!result.assets?.length) {
+    showToast('No assets found in file to import', 'error');
+    return;
+  }
 
-  // Apply bank rename if user set a custom name
+  // Apply bank rename
   const bankNameEl = document.getElementById('bank-import-name');
-  if (bankNameEl && (result.source === 'bank_csv' || result.source === 'bank_pdf')) {
+  if (bankNameEl && (source === 'bank_csv' || source === 'bank_pdf')) {
     const customName = bankNameEl.value.trim();
     if (customName) result.assets[0].name = customName;
   }
 
-  console.log('Before merge:', STATE.assets);
-  console.log('Incoming assets:', result.assets);
+  // Merge, snapshot, register
+  const mergedCount = Data.mergeAssets(result.assets, source);
+  const nw          = Data.getTotalNetWorth();
+  Data.takeSnapshot();
 
-  // Merge assets by source (replace source's existing data)
-  Data.mergeAssets(result.assets, source);
-  const snapshot = Data.takeSnapshot();
-  console.log('Snapshot:', snapshot);
-  console.log('Total NW:', Data.getTotalNetWorth());
-
-  // Register this import
   Data.registerImport({
     fileHash:   result.fileHash || ('manual_' + Date.now()),
     fileName:   result.type || source,
@@ -468,16 +473,11 @@ function confirmImport() {
     type:       'assets'
   });
 
-  showToast(`Imported ${result.assets.length} assets from ${CONFIG.IMPORT_SOURCES[source] || source} ✓`, 'success');
+  showToast(`Imported ${result.assets.length} assets · NW now ${formatCurrency(nw)} ✓`, 'success');
   closeImportPreview();
   UI.renderDashboard();
   UI.renderAssets();
   UI.renderImportHistory();
-  if (!document.getElementById('page-tax')?.classList.contains('hidden')) Tax.update();
-  } catch (e) {
-    console.error('Critical failure:', e);
-    alert('Something broke. Check console.');
-  }
 }
 
 function showBulkEntry() { UI.showBulkEntry(); }
@@ -539,12 +539,9 @@ async function fetchLiveRates() {
       if (el) el.value = STATE.usdInr.toFixed(2);
     }
   } catch (e) {
-    console.error('Critical failure:', e);
-    alert('Something broke. Check console.');
+    console.error('fetchLiveRates error:', e);
+    // Silent fail — user can set rates manually
   }
-}
-
-function exportData() {
   const json = Data.exportJSON();
   const blob = new Blob([json], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);

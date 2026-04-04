@@ -42,27 +42,18 @@ const Data = {
   },
 
   mergeAssets(newAssets, source) {
-    try {
-      const existing = STATE.assets || [];
-      const filtered = existing.filter(a => a.source !== source);
-      const enriched = (newAssets || []).map(a => {
-        const id = a.id || ('a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6));
-        const createdAt = a.createdAt || new Date().toISOString();
-        return {
-          ...a,
-          source,
-          id,
-          createdAt,
-          asset_id: a.asset_id || this.buildAssetId(source, a.name)
-        };
-      });
-
-      STATE.assets = [...filtered, ...enriched];
-      this.saveLocal();
-    } catch (e) {
-      console.error('Critical failure:', e);
-      alert('Something broke. Check console.');
-    }
+    const existing = STATE.assets || [];
+    const filtered = existing.filter(a => a.source !== source);
+    const enriched = (newAssets || []).map((a, i) => ({
+      ...a,
+      source,
+      id:       'a_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 5),
+      createdAt: a.createdAt || new Date().toISOString(),
+      asset_id:  a.asset_id || this.buildAssetId(source, a.name)
+    }));
+    STATE.assets = [...filtered, ...enriched];
+    this.saveLocal();
+    return enriched.length;
   },
 
   // ============ VALUE CALCULATIONS ============
@@ -128,36 +119,26 @@ const Data = {
   },
 
   takeSnapshot(monthKey = null) {
-    try {
-      if (!STATE.assets || STATE.assets.length === 0) {
-        console.warn('No assets - snapshot skipped');
-        return null;
-      }
+    const key       = monthKey || this.getCurrentMonthKey();
+    const breakdown = this.getCategoryBreakdown();
+    const total     = this.getTotalNetWorth();
 
-      const key = monthKey || this.getCurrentMonthKey();
-      const breakdown = this.getCategoryBreakdown();
-      const total = this.getTotalNetWorth();
-      const snapshot = {
-        month: key,
-        total,
-        categories: {},
-        takenAt: new Date().toISOString()
-      };
+    const snapshot = {
+      month:      key,
+      total,
+      categories: {},
+      takenAt:    new Date().toISOString()
+    };
 
-      breakdown.forEach(b => {
-        snapshot.categories[b.category] = { value: b.value, cost: b.cost };
-      });
+    breakdown.forEach(b => {
+      snapshot.categories[b.category] = { value: b.value, cost: b.cost };
+    });
 
-      STATE.snapshots = (STATE.snapshots || []).filter(s => s.month !== key);
-      STATE.snapshots.push(snapshot);
-      STATE.snapshots.sort((a, b) => a.month.localeCompare(b.month));
-      this.saveLocal();
-      return snapshot;
-    } catch (e) {
-      console.error('Critical failure:', e);
-      alert('Something broke. Check console.');
-      return null;
-    }
+    STATE.snapshots = (STATE.snapshots || []).filter(s => s.month !== key);
+    STATE.snapshots.push(snapshot);
+    STATE.snapshots.sort((a, b) => a.month.localeCompare(b.month));
+    this.saveLocal();
+    return snapshot;
   },
 
   getSnapshots() {

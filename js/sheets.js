@@ -66,7 +66,6 @@ const Sheets = {
       return { ok: false, error: 'Missing Apps Script URL - sync disabled' };
     }
     try {
-      console.log('Sync payload:', data);
       const res = await fetch(scriptUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

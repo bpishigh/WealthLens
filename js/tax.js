@@ -146,8 +146,10 @@ const Tax = {
       this.renderRegimeComparison(income, d80d, dNPS, dHRA, c80Total, capitalGainsTax, regime);
       this.renderRecommendations(income, regime, c80Total, d80d, dNPS, realized, losses);
     } catch (e) {
-      console.error('Critical failure:', e);
-      alert('Something broke. Check console.');
+      console.error('Tax.update error:', e);
+      // Don't alert — log silently and show in UI
+      const el = document.getElementById('tax-recommendations');
+      if (el) el.innerHTML = `<div class="rec-item rec-warning"><span class="rec-icon">⚠️</span><span>Tax planner error: ${e.message} — check console for details</span></div>`;
     }
   },
 

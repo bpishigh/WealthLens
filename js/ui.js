@@ -29,9 +29,12 @@ const UI = {
       ? this._breakdownFromSnapshot(snapshotOverride)
       : Data.getCategoryBreakdown();
 
-    document.getElementById('total-networth').textContent = formatCurrencyFull(total);
+    const elNW = document.getElementById('total-networth');
+    if (elNW) elNW.textContent = formatCurrencyFull(total);
+
     const monthKey = isHistorical ? snapshotOverride.month : Data.getCurrentMonthKey();
-    document.getElementById('current-month').textContent = formatMonth(monthKey);
+    const elMonth = document.getElementById('current-month');
+    if (elMonth) elMonth.textContent = formatMonth(monthKey);
 
     // Historical banner
     const bannerEl = document.getElementById('historical-banner');
@@ -44,17 +47,19 @@ const UI = {
       }
     }
 
-    const changeEl = document.getElementById('nw-change');
-    const isPos = mom.amount >= 0;
-    changeEl.className = 'nw-change ' + (isPos ? 'positive' : 'negative');
-    document.querySelector('.change-arrow').textContent = isPos ? '↑' : '↓';
-    document.getElementById('change-amount').textContent = formatCurrency(Math.abs(mom.amount));
-    document.getElementById('change-pct').textContent = `(${formatPct(mom.pct)})`;
+    const changeEl   = document.getElementById('nw-change');
+    const arrowEl    = document.querySelector('.change-arrow');
+    const amountEl   = document.getElementById('change-amount');
+    const pctEl      = document.getElementById('change-pct');
+    const isPos      = mom.amount >= 0;
+    if (changeEl) changeEl.className = 'nw-change ' + (isPos ? 'positive' : 'negative');
+    if (arrowEl)  arrowEl.textContent  = isPos ? '↑' : '↓';
+    if (amountEl) amountEl.textContent = formatCurrency(Math.abs(mom.amount));
+    if (pctEl)    pctEl.textContent    = `(${formatPct(mom.pct)})`;
 
     this.renderCategoryCards(breakdown, total);
     Charts.renderDonut('donut-chart', breakdown);
 
-    // Trend chart always shows full history (not frozen to historical snapshot)
     const trendData = Data.getTrendData();
     Charts.buildChartToggles('chart-toggles');
     Charts.renderTrend('trend-chart', trendData, [...activeChartCategories]);
@@ -62,7 +67,6 @@ const UI = {
     this.renderSnapshotTable(breakdown, total);
     this.populateMonthSelector(isHistorical ? snapshotOverride.month : 'current');
 
-    // Option C — only on current view (not historical)
     if (!isHistorical) {
       this.renderMilestones();
       this.renderAllocation();
