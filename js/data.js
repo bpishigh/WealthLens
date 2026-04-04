@@ -42,15 +42,27 @@ const Data = {
   },
 
   mergeAssets(newAssets, source) {
-    STATE.assets = STATE.assets.filter(a => a.source !== source);
-    newAssets.forEach(a => {
-      a.source = source;
-      a.id = 'a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      a.createdAt = new Date().toISOString();
-      a.asset_id = this.buildAssetId(source, a.name);
-    });
-    STATE.assets = STATE.assets.concat(newAssets);
-    this.saveLocal();
+    try {
+      const existing = STATE.assets || [];
+      const filtered = existing.filter(a => a.source !== source);
+      const enriched = (newAssets || []).map(a => {
+        const id = a.id || ('a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6));
+        const createdAt = a.createdAt || new Date().toISOString();
+        return {
+          ...a,
+          source,
+          id,
+          createdAt,
+          asset_id: a.asset_id || this.buildAssetId(source, a.name)
+        };
+      });
+
+      STATE.assets = [...filtered, ...enriched];
+      this.saveLocal();
+    } catch (e) {
+      console.error('Critical failure:', e);
+      alert('Something broke. Check console.');
+    }
   },
 
   // ============ VALUE CALCULATIONS ============
@@ -116,23 +128,36 @@ const Data = {
   },
 
   takeSnapshot(monthKey = null) {
-    const key = monthKey || this.getCurrentMonthKey();
-    const breakdown = this.getCategoryBreakdown();
-    const total = this.getTotalNetWorth();
-    const snapshot = {
-      month: key,
-      total,
-      categories: {},
-      takenAt: new Date().toISOString()
-    };
-    breakdown.forEach(b => {
-      snapshot.categories[b.category] = { value: b.value, cost: b.cost };
-    });
-    STATE.snapshots = STATE.snapshots.filter(s => s.month !== key);
-    STATE.snapshots.push(snapshot);
-    STATE.snapshots.sort((a, b) => a.month.localeCompare(b.month));
-    this.saveLocal();
-    return snapshot;
+    try {
+      if (!STATE.assets || STATE.assets.length === 0) {
+        console.warn('No assets - snapshot skipped');
+        return null;
+      }
+
+      const key = monthKey || this.getCurrentMonthKey();
+      const breakdown = this.getCategoryBreakdown();
+      const total = this.getTotalNetWorth();
+      const snapshot = {
+        month: key,
+        total,
+        categories: {},
+        takenAt: new Date().toISOString()
+      };
+
+      breakdown.forEach(b => {
+        snapshot.categories[b.category] = { value: b.value, cost: b.cost };
+      });
+
+      STATE.snapshots = (STATE.snapshots || []).filter(s => s.month !== key);
+      STATE.snapshots.push(snapshot);
+      STATE.snapshots.sort((a, b) => a.month.localeCompare(b.month));
+      this.saveLocal();
+      return snapshot;
+    } catch (e) {
+      console.error('Critical failure:', e);
+      alert('Something broke. Check console.');
+      return null;
+    }
   },
 
   getSnapshots() {
@@ -518,28 +543,31 @@ const Data = {
 
   loadLocal() {
     try {
-      STATE.assets             = JSON.parse(localStorage.getItem('wl_assets')    || '[]');
-      STATE.snapshots          = JSON.parse(localStorage.getItem('wl_snapshots') || '[]');
-      STATE.imports            = JSON.parse(localStorage.getItem('wl_imports')   || '[]');
-      STATE.pnlRecords         = JSON.parse(localStorage.getItem('wl_pnl')       || '[]');
-      STATE.goals              = JSON.parse(localStorage.getItem('wl_goals')     || '[]');
-      STATE.allocationTargets  = {
-        ...DEFAULT_ALLOCATION_TARGETS,
-        ...JSON.parse(localStorage.getItem('wl_alloc') || '{}')
-      };
-      STATE.usdInr    = parseFloat(localStorage.getItem('wl_usd_inr')  || '84');
-      STATE.goldRate  = parseFloat(localStorage.getItem('wl_gold_rate') || '7200');
+      STATE.assets = JSON.parse(localStorage.getItem('wl_assets') || '[]');
+      STATE.snapshots = JSON.parse(localStorage.getItem('wl_snapshots') || '[]');
+      STATE.imports = JSON.parse(localStorage.getItem('wl_imports') || '[]');
+      STATE.pnlRecords = JSON.parse(localStorage.getItem('wl_pnl') || '[]');
+      STATE.goals = JSON.parse(localStorage.getItem('wl_goals') || '[]');
+      STATE.allocationTargets = JSON.parse(localStorage.getItem('wl_alloc') || '{}');
+
+      STATE.usdInr = parseFloat(localStorage.getItem('wl_usd_inr')) || 84;
+      STATE.goldRate = parseFloat(localStorage.getItem('wl_gold_rate')) || 7200;
+
       STATE.config = {
-        gsKey:        localStorage.getItem('wl_gs_key')        || '',
-        gsId:         localStorage.getItem('wl_gs_id')         || '',
-        claudeKey:    localStorage.getItem('wl_claude_key')    || '',
-        userName:     localStorage.getItem('wl_user_name')     || '',
-        taxRegime:    localStorage.getItem('wl_tax_regime')    || 'new',
-        annualIncome: parseFloat(localStorage.getItem('wl_annual_income') || '0'),
-        scriptUrl:    localStorage.getItem('wl_script_url')    || ''
+        annualIncome: parseFloat(localStorage.getItem('wl_annual_income')) || 0,
+        taxRegime: localStorage.getItem('wl_tax_regime') || 'new'
+      };
+      STATE.config.gsKey = localStorage.getItem('wl_gs_key') || '';
+      STATE.config.gsId = localStorage.getItem('wl_gs_id') || '';
+      STATE.config.claudeKey = localStorage.getItem('wl_claude_key') || '';
+      STATE.config.userName = localStorage.getItem('wl_user_name') || '';
+      STATE.config.scriptUrl = localStorage.getItem('wl_script_url') || '';
+      STATE.allocationTargets = {
+        ...DEFAULT_ALLOCATION_TARGETS,
+        ...(STATE.allocationTargets || {})
       };
     } catch (e) {
-      console.error('Error loading local data:', e);
+      console.error('loadLocal failed', e);
     }
   },
 
@@ -588,6 +616,17 @@ const Data = {
 };
 
 // ============ HELPER UTILITIES ============
+
+// Convert Indian date formats (DD/MM/YYYY or DD-MM-YYYY) or ISO to Date
+function parseIndianDate(str) {
+  if (!str) return new Date(NaN);
+  const parts = String(str).split(/[-\/]/);
+  if (parts.length === 3 && parts[2].length === 4) {
+    // DD/MM/YYYY or DD-MM-YYYY
+    return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+  }
+  return new Date(str); // fallback to ISO / any JS-parseable format
+}
 
 function formatCurrency(val) {
   if (!val && val !== 0) return '₹0';

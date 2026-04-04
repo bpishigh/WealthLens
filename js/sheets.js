@@ -63,10 +63,10 @@ const Sheets = {
   async writeData(tab, data) {
     const scriptUrl = localStorage.getItem('wl_script_url');
     if (!scriptUrl) {
-      // Fallback: save to localStorage only
-      return { ok: false, error: 'No Apps Script URL. Data saved locally only.' };
+      return { ok: false, error: 'Missing Apps Script URL - sync disabled' };
     }
     try {
+      console.log('Sync payload:', data);
       const res = await fetch(scriptUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

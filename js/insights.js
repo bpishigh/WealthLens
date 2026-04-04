@@ -45,7 +45,7 @@ const Insights = {
     let realizedLTCG = 0, realizedSTCG = 0;
     const fyRange = { start: new Date(new Date().getFullYear() - (new Date().getMonth() < 3 ? 1 : 0), 3, 1) };
     pnl.forEach(r => {
-      const d = new Date(r.sellDate);
+      const d = parseIndianDate(r.sellDate);
       if (isNaN(d) || d < fyRange.start) return;
       if (r.gainType === 'LTCG' && r.gain > 0) realizedLTCG += r.gain;
       if (r.gainType === 'STCG' && r.gain > 0) realizedSTCG += r.gain;

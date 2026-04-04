@@ -150,17 +150,25 @@ const DEFAULT_ALLOCATION_TARGETS = {
 };
 
 // App state — single source of truth
-const STATE = {
-  config: null,
+window.STATE = {
   assets: [],
   snapshots: [],
   imports: [],
   pnlRecords: [],
   goals: [],
   allocationTargets: { ...DEFAULT_ALLOCATION_TARGETS },
-  currentMonth: null,
-  pendingImport: null,
-  charts: {},
   usdInr: 84,
   goldRate: 7200,
+  config: null
 };
+
+window.STATE.currentMonth  = null;
+window.STATE.pendingImport = null;
+window.STATE.charts = {
+  donut:      null,
+  trend:      null,
+  returnsBar: null,
+  bar:        null,
+};
+
+const STATE = window.STATE;

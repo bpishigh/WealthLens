@@ -17,7 +17,7 @@ const Tax = {
 
   isInCurrentFY(dateStr) {
     if (!dateStr) return false;
-    const d = new Date(dateStr);
+    const d = parseIndianDate(dateStr);
     if (isNaN(d)) return false;
     const { fyStart, fyEnd } = this.getCurrentFYRange();
     return d >= fyStart && d <= fyEnd;
@@ -28,20 +28,15 @@ const Tax = {
   // Realized gains: from PnL records, filtered to current FY
   getRealizedGains() {
     const pnl = Data.getPnlRecords();
-    let ltcg = 0, stcg = 0, unknown = 0;
+    let ltcg = 0, stcg = 0;
 
     pnl.forEach(r => {
       if (!this.isInCurrentFY(r.sellDate)) return; // only current FY
       const gain = parseFloat(r.gain) || 0;
       if (gain <= 0) return; // only count profits (loss harvesting handled separately)
-      if (r.gainType === 'LTCG')       ltcg    += gain;
-      else if (r.gainType === 'STCG')  stcg    += gain;
-      else                             unknown += gain;
+      if (r.gainType === 'LTCG')       ltcg += gain;
+      else if (r.gainType === 'STCG')  stcg += gain;
     });
-
-    // Split unknown evenly as conservative estimate
-    ltcg += unknown * 0.5;
-    stcg += unknown * 0.5;
 
     return { ltcg, stcg, hasData: pnl.length > 0 };
   },
@@ -61,18 +56,6 @@ const Tax = {
   },
 
   // Unrealized gains: from current holdings (not FY-aware — no purchase dates)
-  getUnrealizedGains() {
-    const equityAssets = [
-      ...Data.getAssets('equity'),
-      ...Data.getAssets('mf').filter(a => a.mfType === 'Equity')
-    ];
-    let ltcg = 0;
-    equityAssets.forEach(a => {
-      const gain = Data.getAssetValue(a) - Data.getAssetCost(a);
-      if (gain > 0) ltcg += gain;
-    });
-    return { ltcg, stcg: 0 };
-  },
 
   // ============ TAX CALCULATIONS ============
 
@@ -120,63 +103,57 @@ const Tax = {
   // ============ MAIN UPDATE ============
 
   update() {
-    const config  = STATE.config || {};
-    const income  = config.annualIncome || 0;
-    const regime  = config.taxRegime    || 'new';
-    const { fyStart, fyEnd } = this.getCurrentFYRange();
-    const fyLabel = `${fyStart.getFullYear()}-${String(fyEnd.getFullYear()).slice(-2)}`;
+    try {
+      const config  = STATE.config || {};
+      const income  = config.annualIncome || 0;
+      const regime  = config.taxRegime || 'new';
+      const { fyStart, fyEnd } = this.getCurrentFYRange();
+      const fyLabel = `${fyStart.getFullYear()}-${String(fyEnd.getFullYear()).slice(-2)}`;
 
-    // Update FY label
-    const fyEl = document.getElementById('current-fy');
-    if (fyEl) fyEl.textContent = fyLabel;
+      const fyEl = document.getElementById('current-fy');
+      if (fyEl) fyEl.textContent = fyLabel;
 
-    // Gains
-    const realized   = this.getRealizedGains();
-    const unrealized = this.getUnrealizedGains();
-    const losses     = this.getRealizedLosses();
+      const realized = this.getRealizedGains();
+      const losses = this.getRealizedLosses();
+      const netLTCG = Math.max(0, realized.ltcg - losses.ltcl);
+      const netSTCG = Math.max(0, realized.stcg - losses.stcl);
 
-    // Net gains after losses
-    const netLTCG = Math.max(0, realized.ltcg - losses.ltcl);
-    const netSTCG = Math.max(0, realized.stcg - losses.stcl);
+      const d80d = parseFloat(document.getElementById('deduction-80d')?.value || 0);
+      const dNPS = parseFloat(document.getElementById('deduction-nps')?.value || 0);
+      const dHRA = parseFloat(document.getElementById('deduction-hra')?.value || 0);
 
-    // Deductions input
-    const d80d = parseFloat(document.getElementById('deduction-80d')?.value || 0);
-    const dNPS = parseFloat(document.getElementById('deduction-nps')?.value || 0);
-    const dHRA = parseFloat(document.getElementById('deduction-hra')?.value || 0);
+      const c80 = Data.get80CUsed();
+      const c80Total = Math.min(c80.total, 150000);
+      const c80Pct = (c80Total / 150000) * 100;
 
-    // 80C
-    const c80      = Data.get80CUsed();
-    const c80Total = Math.min(c80.total, 150000);
-    const c80Pct   = (c80Total / 150000) * 100;
+      document.getElementById('80c-fill').style.width = c80Pct + '%';
+      document.getElementById('80c-used').textContent = `${formatCurrencyFull(c80Total)} used`;
 
-    document.getElementById('80c-fill').style.width = c80Pct + '%';
-    document.getElementById('80c-used').textContent  = `${formatCurrencyFull(c80Total)} used`;
+      const breakdown80c = document.getElementById('80c-breakdown');
+      if (breakdown80c) {
+        breakdown80c.innerHTML = `
+          <div class="tax-item"><label>EPF (Employee)</label><span>${formatCurrencyFull(c80.epf)}</span></div>
+          <div class="tax-item"><label>PPF</label><span>${formatCurrencyFull(c80.ppf)}</span></div>
+          <div class="tax-item"><label>ELSS</label><span>${formatCurrencyFull(c80.elss)}</span></div>
+          <div class="tax-item"><label>Remaining Room</label><span class="tag-positive">${formatCurrencyFull(Math.max(0, 150000 - c80Total))}</span></div>`;
+      }
 
-    const breakdown80c = document.getElementById('80c-breakdown');
-    if (breakdown80c) {
-      breakdown80c.innerHTML = `
-        <div class="tax-item"><label>EPF (Employee)</label><span>${formatCurrencyFull(c80.epf)}</span></div>
-        <div class="tax-item"><label>PPF</label><span>${formatCurrencyFull(c80.ppf)}</span></div>
-        <div class="tax-item"><label>ELSS</label><span>${formatCurrencyFull(c80.elss)}</span></div>
-        <div class="tax-item"><label>Remaining Room</label><span class="tag-positive">${formatCurrencyFull(Math.max(0, 150000 - c80Total))}</span></div>`;
+      this.renderCapitalGains(realized, losses, netLTCG, netSTCG);
+
+      const ltcgTax = this.calculateLTCGTax(netLTCG);
+      const stcgTax = this.calculateSTCGTax(netSTCG);
+      const capitalGainsTax = ltcgTax + stcgTax;
+      this.renderRegimeComparison(income, d80d, dNPS, dHRA, c80Total, capitalGainsTax, regime);
+      this.renderRecommendations(income, regime, c80Total, d80d, dNPS, realized, losses);
+    } catch (e) {
+      console.error('Critical failure:', e);
+      alert('Something broke. Check console.');
     }
-
-    // Capital gains section
-    this.renderCapitalGains(realized, unrealized, losses, netLTCG, netSTCG);
-
-    // Regime comparison
-    const ltcgTax = this.calculateLTCGTax(netLTCG);
-    const stcgTax = this.calculateSTCGTax(netSTCG);
-    const capitalGainsTax = ltcgTax + stcgTax;
-    this.renderRegimeComparison(income, d80d, dNPS, dHRA, c80Total, capitalGainsTax, regime);
-
-    // Recommendations
-    this.renderRecommendations(income, regime, c80Total, d80d, dNPS, realized, unrealized, losses);
   },
 
   // ============ CAPITAL GAINS SECTION ============
 
-  renderCapitalGains(realized, unrealized, losses, netLTCG, netSTCG) {
+  renderCapitalGains(realized, losses, netLTCG, netSTCG) {
     const el = document.getElementById('capital-gains-section');
     if (!el) return;
 
@@ -209,26 +186,6 @@ const Tax = {
         </div>
       </div>
 
-      <!-- Unrealized gains -->
-      <div class="tax-card">
-        <h3>Unrealized Gains <span class="fy-badge">current holdings</span></h3>
-        <p style="color:var(--text-muted);font-size:0.78rem;margin-bottom:12px">
-          Estimated — assumed LTCG (no purchase dates). Sell before Mar 31 to realize this FY.
-        </p>
-        <div class="tax-item">
-          <label>Equity + Equity MF</label>
-          <span class="${unrealized.ltcg > 0 ? 'tag-positive' : ''}">${formatCurrencyFull(unrealized.ltcg)}</span>
-        </div>
-        <div class="tax-item">
-          <label>Tax if sold now (LTCG)</label>
-          <span>${formatCurrencyFull(this.calculateLTCGTax(unrealized.ltcg))}</span>
-        </div>
-        <div class="tax-item highlight">
-          <label>₹1.25L exemption remaining</label>
-          <span class="tag-positive">${formatCurrencyFull(Math.max(0, 125000 - netLTCG))}</span>
-        </div>
-      </div>
-
       <!-- Capital gains tax -->
       <div class="tax-card">
         <h3>Capital Gains Tax (FY ${document.getElementById('current-fy')?.textContent || ''})</h3>
@@ -239,6 +196,10 @@ const Tax = {
         <div class="tax-item">
           <label>STCG tax (20% flat)</label>
           <span>${formatCurrencyFull(stcgTax)}</span>
+        </div>
+        <div class="tax-item">
+          <label>₹1.25L exemption remaining</label>
+          <span class="tag-positive">${formatCurrencyFull(Math.max(0, 125000 - netLTCG))}</span>
         </div>
         <div class="tax-item highlight">
           <label>Total Capital Gains Tax</label>
@@ -294,14 +255,13 @@ const Tax = {
 
   // ============ RECOMMENDATIONS ============
 
-  renderRecommendations(income, regime, c80, d80d, dNPS, realized, unrealized, losses) {
+  renderRecommendations(income, regime, c80, d80d, dNPS, realized, losses) {
     const el = document.getElementById('tax-recommendations');
     if (!el) return;
 
     const recs = [];
     const { fyEnd } = this.getCurrentFYRange();
     const daysLeft = Math.ceil((fyEnd - new Date()) / (1000 * 60 * 60 * 24));
-    const monthsLeft = Math.ceil(daysLeft / 30);
 
     // 80C room
     if (c80 < 150000 && regime === 'old') {
@@ -322,7 +282,7 @@ const Tax = {
     // LTCG harvesting — exemption headroom
     const netLTCG = Math.max(0, realized.ltcg - losses.ltcl);
     const exemptionLeft = Math.max(0, 125000 - netLTCG);
-    if (exemptionLeft > 0 && unrealized.ltcg > 0 && daysLeft > 0) {
+    if (exemptionLeft > 0 && realized.ltcg > 0 && daysLeft > 0) {
       recs.push({
         icon: '📊', type: 'opportunity',
         text: `Tax-free LTCG harvest: sell up to ${formatCurrency(exemptionLeft)} of gains before Mar 31 — no tax due`
@@ -330,7 +290,7 @@ const Tax = {
     }
 
     // Loss harvesting
-    if (losses.ltcl + losses.stcl === 0 && unrealized.ltcg > 125000) {
+    if (losses.ltcl + losses.stcl === 0 && realized.ltcg > 125000) {
       recs.push({
         icon: '⚖️', type: 'neutral',
         text: `Consider tax-loss harvesting — sell loss-making positions to offset your LTCG`
@@ -373,3 +333,5 @@ const Tax = {
 };
 
 function updateTax() { Tax.update(); }
+
+// Note: parseIndianDate() is defined in data.js (loads first)

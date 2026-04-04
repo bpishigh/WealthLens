@@ -2,19 +2,24 @@
 
 // ============ INITIALIZATION ============
 document.addEventListener('DOMContentLoaded', () => {
-  if (typeof pdfjsLib !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
+  try {
+    if (typeof pdfjsLib !== 'undefined') {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
 
-  Data.loadLocal();
+    Data.loadLocal();
 
-  const isSetup = localStorage.getItem('wl_setup_done');
-  if (isSetup) {
-    launchApp();
-  } else {
-    document.getElementById('setup-modal').classList.remove('hidden');
-    document.getElementById('app').classList.add('hidden');
+    const isSetup = localStorage.getItem('wl_setup_done');
+    if (isSetup) {
+      launchApp();
+    } else {
+      document.getElementById('setup-modal').classList.remove('hidden');
+      document.getElementById('app').classList.add('hidden');
+    }
+  } catch (e) {
+    console.error('Critical failure:', e);
+    alert('Something broke. Check console.');
   }
 });
 
@@ -389,10 +394,15 @@ function closeImportPreview() {
 }
 
 function confirmImport() {
+  try {
   if (!currentImportResult) return;
 
   const result = currentImportResult;
   const source = result.source;
+  if (!result || !Array.isArray(result.assets)) {
+    console.error('Invalid import result', result);
+    return;
+  }
 
   // PnL records
   if (result.pnlRecords?.length > 0) {
@@ -407,6 +417,8 @@ function confirmImport() {
     });
     showToast(`Saved ${result.pnlRecords.length} P&L records ✓`, 'success');
     closeImportPreview();
+    UI.renderImportHistory();
+    if (!document.getElementById('page-tax')?.classList.contains('hidden')) Tax.update();
     return;
   }
 
@@ -419,9 +431,14 @@ function confirmImport() {
     if (customName) result.assets[0].name = customName;
   }
 
+  console.log('Before merge:', STATE.assets);
+  console.log('Incoming assets:', result.assets);
+
   // Merge assets by source (replace source's existing data)
   Data.mergeAssets(result.assets, source);
-  Data.takeSnapshot();
+  const snapshot = Data.takeSnapshot();
+  console.log('Snapshot:', snapshot);
+  console.log('Total NW:', Data.getTotalNetWorth());
 
   // Register this import
   Data.registerImport({
@@ -436,7 +453,13 @@ function confirmImport() {
   showToast(`Imported ${result.assets.length} assets from ${CONFIG.IMPORT_SOURCES[source] || source} ✓`, 'success');
   closeImportPreview();
   UI.renderDashboard();
+  UI.renderAssets();
   UI.renderImportHistory();
+  if (!document.getElementById('page-tax')?.classList.contains('hidden')) Tax.update();
+  } catch (e) {
+    console.error('Critical failure:', e);
+    alert('Something broke. Check console.');
+  }
 }
 
 function showBulkEntry() { UI.showBulkEntry(); }
@@ -466,7 +489,10 @@ async function fetchLiveRates() {
       const el = document.getElementById('usd-inr-rate');
       if (el) el.value = STATE.usdInr.toFixed(2);
     }
-  } catch { /* silent fail */ }
+  } catch (e) {
+    console.error('Critical failure:', e);
+    alert('Something broke. Check console.');
+  }
 }
 
 function exportData() {
@@ -492,6 +518,8 @@ function importData() {
     if (result.ok) {
       showToast('Data imported ✓', 'success');
       UI.renderDashboard();
+      UI.renderAssets();
+      UI.renderImportHistory();
     } else {
       showToast('Import failed: ' + result.error, 'error');
     }
